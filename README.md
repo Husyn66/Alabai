@@ -48,35 +48,44 @@ contract AlabaiToken is ERC20, ERC20Burnable, ERC20Pausable, AccessControl, Reen
         virtual
         override(ERC20, ERC20Pausable)
     {
-        super._update(from, to, amount);
-    }
-
-    function _transfer(address sender, address recipient, uint256 amount)
-        internal
-        virtual
-        override
-        nonReentrant
-    {
-        require(!_blacklisted[sender], "AlabaiToken: sender is blacklisted");
-        require(!_blacklisted[recipient], "AlabaiToken: recipient is blacklisted");
-
-        if (maxTransferAmountEnabled && !hasRole(DEFAULT_ADMIN_ROLE, sender) && !hasRole(DEFAULT_ADMIN_ROLE, recipient)) {
-            require(amount <= maxTransferAmount, "AlabaiToken: transfer amount exceeds maximum");
+        // Apply blacklist check
+        if (from != address(0)) {
+            require(!_blacklisted[from], "AlabaiToken: sender is blacklisted");
+        }
+        
+        if (to != address(0)) {
+            require(!_blacklisted[to], "AlabaiToken: recipient is blacklisted");
         }
 
-        if (cooldownEnabled && !hasRole(DEFAULT_ADMIN_ROLE, sender) && !hasRole(DEFAULT_ADMIN_ROLE, recipient)) {
-            require(_lastTransferTimestamp[sender] + cooldownTime <= block.timestamp, "AlabaiToken: cooldown active");
-            _lastTransferTimestamp[sender] = block.timestamp;
+        // Apply max transfer limit
+        if (from != address(0) && to != address(0)) {
+            if (maxTransferAmountEnabled && !hasRole(DEFAULT_ADMIN_ROLE, from) && !hasRole(DEFAULT_ADMIN_ROLE, to)) {
+                require(amount <= maxTransferAmount, "AlabaiToken: transfer amount exceeds maximum");
+            }
+
+            // Apply cooldown
+            if (cooldownEnabled && !hasRole(DEFAULT_ADMIN_ROLE, from) && !hasRole(DEFAULT_ADMIN_ROLE, to)) {
+                require(_lastTransferTimestamp[from] + cooldownTime <= block.timestamp, "AlabaiToken: cooldown active");
+                _lastTransferTimestamp[from] = block.timestamp;
+            }
         }
 
-        if (feeEnabled && feeBasisPoints > 0) {
+        // Apply fee if enabled
+        if (from != address(0) && to != address(0) && feeEnabled && feeBasisPoints > 0) {
             require(feeCollector != address(0), "AlabaiToken: fee collector not set");
             uint256 feeAmount = amount * feeBasisPoints / 10000;
             uint256 transferAmount = amount - feeAmount;
-            super._transfer(sender, feeCollector, feeAmount);
-            super._transfer(sender, recipient, transferAmount);
+            
+            // Call parent implementation for fee transfer
+            super._update(from, feeCollector, feeAmount);
+            
+            // Call parent for remaining amount
+            if (transferAmount > 0) {
+                super._update(from, to, transferAmount);
+            }
         } else {
-            super._transfer(sender, recipient, amount);
+            // Standard transfer without fee
+            super._update(from, to, amount);
         }
     }
 
@@ -140,3 +149,4 @@ contract AlabaiToken is ERC20, ERC20Burnable, ERC20Pausable, AccessControl, Reen
         emit FeeToggled(enabled);
     }
 }
+
